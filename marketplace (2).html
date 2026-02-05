@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace - Compre e Venda</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .star-rating {
+            display: inline-flex;
+            gap: 2px;
+        }
+        .star {
+            cursor: pointer;
+            font-size: 24px;
+            color: #d1d5db;
+            transition: color 0.2s;
+        }
+        .star.active {
+            color: #fbbf24;
+        }
+        .photo-preview {
+            position: relative;
+            display: inline-block;
+        }
+        .remove-photo {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ef4444;
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .category-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script>
+        // State Management
+        const state = {
+            currentView: 'home',
+            user: null,
+            products: [],
+            categories: [
+                { id: 1, name: 'Eletrônicos', icon: '📱' },
+                { id: 2, name: 'Veículos', icon: '🚗' },
+                { id: 3, name: 'Imóveis', icon: '🏠' },
+                { id: 4, name: 'Moda', icon: '👔' },
+                { id: 5, name: 'Casa e Jardim', icon: '🛋️' },
+                { id: 6, name: 'Esportes', icon: '⚽' },
+                { id: 7, name: 'Livros', icon: '📚' },
+                { id: 8, name: 'Móveis', icon: '🪑' },
+                { id: 9, name: 'Pets', icon: '🐕' },
+                { id: 10, name: 'Serviços', icon: '🔧' }
+            ],
+            currencies: [
+                { code: 'MZN', symbol: 'MT', name: 'Metical' },
+                { code: 'USD', symbol: '$', name: 'Dólar' },
+                { code: 'EUR', symbol: '€', name: 'Euro' },
+                { code: 'ZAR', symbol: 'R', name: 'Rand' },
+                { code: 'GBP', symbol: '£', name: 'Libra' },
+                { code: 'BRL', symbol: 'R$', name: 'Real' }
+            ],
+            selectedProduct: null,
+            selectedUserId: null,
+            filterCategory: null,
+            recentlyViewed: [],
+            favorites: [],
+            newProduct: {
+                title: '',
+                description: '',
+                price: '',
+                currency: 'MZN',
+                category: '',
+                condition: 'new',
+                photos: []
+            },
+            settings: {
+                notifications: true,
+                emailAlerts: true,
+                showPhone: true,
+                language: 'pt',
+                theme: 'light'
+            }
+        };
+
+        // Load data from localStorage
+        function loadData() {
+            const savedUser = localStorage.getItem('marketplace_user');
+            const savedProducts = localStorage.getItem('marketplace_products');
+            const savedRecentlyViewed = localStorage.getItem('marketplace_recent');
+            const savedFavorites = localStorage.getItem('marketplace_favorites');
+            const savedSettings = localStorage.getItem('marketplace_settings');
+            
+            if (savedUser) {
+                state.user = JSON.parse(savedUser);
+            }
+            if (savedProducts) {
+                state.products = JSON.parse(savedProducts);
+            }
+            if (savedRecentlyViewed) {
+                state.recentlyViewed = JSON.parse(savedRecentlyViewed);
+            }
+            if (savedFavorites) {
+                state.favorites = JSON.parse(savedFavorites);
+            }
+            if (savedSettings) {
+                state.settings = JSON.parse(savedSettings);
+            }
+        }
+
+        // Save data to localStorage
+        function saveData() {
+            if (state.user) {
+                localStorage.setItem('marketplace_user', JSON.stringify(state.user));
+            }
+            localStorage.setItem('marketplace_products', JSON.stringify(state.products));
+            localStorage.setItem('marketplace_recent', JSON.stringify(state.recentlyViewed));
+            localStorage.setItem('marketplace_favorites', JSON.stringify(state.favorites));
+            localStorage.setItem('marketplace_settings', JSON.stringify(state.settings));
+        }
+
+        // Authentication
+        function register(name, email, password, phone) {
+            const users = JSON.parse(localStorage.getItem('marketplace_users') || '[]');
+            
+            if (users.find(u => u.email === email)) {
+                alert('Email já cadastrado!');
+                return false;
+            }
+
+            const newUser = {
+                id: Date.now(),
+                name,
+                email,
+                password,
+                phone,
+                createdAt: new Date().toISOString()
+            };
+
+            users.push(newUser);
+            localStorage.setItem('marketplace_users', JSON.stringify(users));
+            
+            state.user = newUser;
+            saveData();
+            return true;
+        }
+
+        function login(email, password) {
+            const users = JSON.parse(localStorage.getItem('marketplace_users') || '[]');
+            const user = users.find(u => u.email === email && u.password === password);
+
+            if (user) {
+                state.user = user;
+                saveData();
+                return true;
+            }
+            
+            alert('Email ou senha incorretos!');
+            return false;
+        }
+
+        function logout() {
+            state.user = null;
+            localStorage.removeItem('marketplace_user');
+            changeView('home');
+        }
+
+        // Product Management
+        function addProduct(product) {
+            const newProduct = {
+                id: Date.now(),
+                ...product,
+                userId: state.user.id,
+                userName: state.user.name,
+                userPhone: state.user.phone,
+                createdAt: new Date().toISOString(),
+                ratings: []
+            };
+
+            state.products.unshift(newProduct);
+            saveData();
+            
+            // Reset form
+            state.newProduct = {
+                title: '',
+                description: '',
+                price: '',
+                currency: 'MZN',
+                category: '',
+                condition: 'new',
+                photos: []
+            };
+        }
+
+        function addRating(productId, rating, comment) {
+            const product = state.products.find(p => p.id === productId);
+            if (product) {
+                product.ratings.push({
+                    userId: state.user.id,
+                    userName: state.user.name,
+                    rating,
+                    comment,
+                    date: new Date().toISOString()
+                });
+                saveData();
+            }
+        }
+
+        function getAverageRating(product) {
+            if (!product.ratings || product.ratings.length === 0) return 0;
+            const sum = product.ratings.reduce((acc, r) => acc + r.rating, 0);
+            return (sum / product.ratings.length).toFixed(1);
+        }
+
+        // Photo handling
+        function handlePhotoUpload(event) {
+            const files = Array.from(event.target.files);
+            
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    state.newProduct.photos.push(e.target.result);
+                    render();
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function removePhoto(index) {
+            state.newProduct.photos.splice(index, 1);
+            render();
+        }
+
+        // WhatsApp Integration
+        function contactWhatsApp(phone, productTitle) {
+            const message = encodeURIComponent(`Olá! Tenho interesse no produto: ${productTitle}`);
+            window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+        }
+
+        // Favorites Management
+        function toggleFavorite(productId) {
+            const index = state.favorites.indexOf(productId);
+            if (index > -1) {
+                state.favorites.splice(index, 1);
+            } else {
+                state.favorites.push(productId);
+            }
+            saveData();
+            render();
+        }
+
+        function isFavorite(productId) {
+            return state.favorites.includes(productId);
+        }
+
+        // Recently Viewed
+        function addToRecentlyViewed(productId) {
+            // Remove if already exists
+            const index = state.recentlyViewed.indexOf(productId);
+            if (index > -1) {
+                state.recentlyViewed.splice(index, 1);
+            }
+            // Add to beginning
+            state.recentlyViewed.unshift(productId);
+            // Keep only last 10
+            if (state.recentlyViewed.length > 10) {
+                state.recentlyViewed = state.recentlyViewed.slice(0, 10);
+            }
+            saveData();
+        }
+
+        function getRecentlyViewedProducts() {
+            return state.recentlyViewed
+                .map(id => state.products.find(p => p.id === id))
+                .filter(p => p !== undefined);
+        }
+
+        // Settings Management
+        function updateSettings(newSettings) {
+            state.settings = { ...state.settings, ...newSettings };
+            saveData();
+        }
+
+        // Delete Product
+        function deleteProduct(productId) {
+            if (confirm('Tem certeza que deseja excluir este produto?')) {
+                const index = state.products.findIndex(p => p.id === productId);
+                if (index > -1) {
+                    state.products.splice(index, 1);
+                    saveData();
+                    changeView('dashboard');
+                }
+            }
+        }
+
+        // View Management
+        function changeView(view, data = null) {
+            state.currentView = view;
+            if (data) {
+                state.selectedProduct = data;
+            }
+            render();
+        }
+
+        // Components
+        function Header() {
+            return `
+                <header class="bg-blue-600 text-white shadow-lg">
+                    <div class="container mx-auto px-4 py-4">
+                        <div class="flex justify-between items-center">
+                            <div class="flex items-center gap-3 cursor-pointer" onclick="changeView('home')">
+                                <span class="text-3xl">🛒</span>
+                                <h1 class="text-2xl font-bold">Marketplace</h1>
+                            </div>
+                            
+                            <nav class="flex items-center gap-4">
+                                ${state.user ? `
+                                    <button onclick="changeView('favorites')" class="hover:bg-blue-700 px-3 py-2 rounded-lg transition" title="Favoritos">
+                                        ❤️
+                                    </button>
+                                    <button onclick="changeView('sell')" class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg font-semibold transition">
+                                        Vender
+                                    </button>
+                                    <button onclick="changeView('dashboard')" class="hover:bg-blue-700 px-4 py-2 rounded-lg transition">
+                                        Meu Painel
+                                    </button>
+                                    <button onclick="changeView('settings')" class="hover:bg-blue-700 px-3 py-2 rounded-lg transition" title="Configurações">
+                                        ⚙️
+                                    </button>
+                                    <button onclick="logout()" class="hover:bg-blue-700 px-4 py-2 rounded-lg transition">
+                                        Sair
+                                    </button>
+                                ` : `
+                                    <button onclick="changeView('login')" class="hover:bg-blue-700 px-4 py-2 rounded-lg transition">
+                                        Entrar
+                                    </button>
+                                    <button onclick="changeView('register')" class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-lg font-semibold transition">
+                                        Cadastrar
+                                    </button>
+                                `}
+                            </nav>
+                        </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        function LoginView() {
+            return `
+                <div class="min-h-screen flex items-center justify-center px-4">
+                    <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Entrar</h2>
+                        
+                        <form onsubmit="event.preventDefault(); handleLogin();" class="space-y-4">
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Email</label>
+                                <input type="email" id="login-email" required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Senha</label>
+                                <input type="password" id="login-password" required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            
+                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">
+                                Entrar
+                            </button>
+                        </form>
+                        
+                        <p class="mt-6 text-center text-gray-600">
+                            Não tem conta? 
+                            <button onclick="changeView('register')" class="text-blue-600 hover:underline font-semibold">
+                                Cadastre-se
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function RegisterView() {
+            return `
+                <div class="min-h-screen flex items-center justify-center px-4 py-8">
+                    <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Cadastrar</h2>
+                        
+                        <form onsubmit="event.preventDefault(); handleRegister();" class="space-y-4">
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Nome Completo</label>
+                                <input type="text" id="register-name" required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Email</label>
+                                <input type="email" id="register-email" required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Telefone (WhatsApp)</label>
+                                <input type="tel" id="register-phone" required placeholder="+258..."
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Senha</label>
+                                <input type="password" id="register-password" required minlength="6"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            
+                            <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition">
+                                Criar Conta
+                            </button>
+                        </form>
+                        
+                        <p class="mt-6 text-center text-gray-600">
+                            Já tem conta? 
+                            <button onclick="changeView('login')" class="text-blue-600 hover:underline font-semibold">
+                                Entrar
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function HomeView() {
+            const recentProducts = getRecentlyViewedProducts();
+            const filteredProducts = state.filterCategory 
+                ? state.products.filter(p => p.category == state.filterCategory)
+                : state.products;
+
+            return `
+                <div class="container mx-auto px-4 py-8">
+                    <!-- Categories -->
+                    <div class="mb-8">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-4">Categorias</h2>
+                        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                            ${state.categories.map(cat => `
+                                <div onclick="filterByCategory(${cat.id})" 
+                                    class="category-card bg-white p-6 rounded-lg shadow hover:shadow-lg transition cursor-pointer text-center ${state.filterCategory == cat.id ? 'ring-2 ring-blue-500' : ''}">
+                                    <div class="text-4xl mb-2">${cat.icon}</div>
+                                    <div class="font-semibold text-gray-800">${cat.name}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ${state.filterCategory ? `
+                            <div class="mt-4 text-center">
+                                <button onclick="clearFilter()" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg font-semibold transition">
+                                    ✕ Limpar Filtro
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    <!-- Recently Viewed -->
+                    ${recentProducts.length > 0 && !state.filterCategory ? `
+                        <div class="mb-8">
+                            <h2 class="text-2xl font-bold text-gray-800 mb-4">🕐 Visualizados Recentemente</h2>
+                            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                ${recentProducts.slice(0, 5).map(product => ProductCard(product, true)).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- Products -->
+                    <div class="mb-4 flex justify-between items-center">
+                        <h2 class="text-2xl font-bold text-gray-800">
+                            ${state.filterCategory ? 'Produtos Filtrados' : 'Todos os Produtos'}
+                        </h2>
+                        <div class="text-gray-600">${filteredProducts.length} anúncios</div>
+                    </div>
+
+                    ${filteredProducts.length === 0 ? `
+                        <div class="text-center py-20">
+                            <div class="text-6xl mb-4">📦</div>
+                            <p class="text-xl text-gray-600">
+                                ${state.filterCategory ? 'Nenhum produto nesta categoria' : 'Nenhum produto disponível ainda'}
+                            </p>
+                            ${state.user && !state.filterCategory ? `
+                                <button onclick="changeView('sell')" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold">
+                                    Seja o primeiro a vender
+                                </button>
+                            ` : ''}
+                        </div>
+                    ` : `
+                        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                            ${filteredProducts.map(product => ProductCard(product)).join('')}
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function ProductCard(product, compact = false) {
+            const avgRating = getAverageRating(product);
+            const currency = state.currencies.find(c => c.code === product.currency);
+            const favorite = isFavorite(product.id);
+            
+            return `
+                <div class="bg-white rounded-lg shadow hover:shadow-xl transition overflow-hidden">
+                    <div class="aspect-square bg-gray-200 relative">
+                        ${product.photos && product.photos.length > 0 ? `
+                            <img src="${product.photos[0]}" alt="${product.title}" 
+                                class="w-full h-full object-cover cursor-pointer"
+                                onclick="changeView('product', ${product.id})">
+                        ` : `
+                            <div class="w-full h-full flex items-center justify-center text-6xl cursor-pointer"
+                                onclick="changeView('product', ${product.id})">
+                                ${state.categories.find(c => c.id === parseInt(product.category))?.icon || '📦'}
+                            </div>
+                        `}
+                        <div class="absolute top-2 right-2 bg-white px-2 py-1 rounded text-sm font-semibold">
+                            ${product.condition === 'new' ? 'Novo' : 'Usado'}
+                        </div>
+                        ${state.user ? `
+                            <button onclick="event.stopPropagation(); toggleFavorite(${product.id})" 
+                                class="absolute top-2 left-2 bg-white w-10 h-10 rounded-full flex items-center justify-center hover:scale-110 transition">
+                                <span class="text-2xl">${favorite ? '❤️' : '🤍'}</span>
+                            </button>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="p-4 cursor-pointer" onclick="changeView('product', ${product.id})">
+                        <h3 class="font-bold text-lg text-gray-800 mb-2 line-clamp-2">${product.title}</h3>
+                        
+                        <div class="flex items-center gap-2 mb-2">
+                            ${avgRating > 0 ? `
+                                <div class="flex items-center">
+                                    <span class="text-yellow-500">⭐</span>
+                                    <span class="font-semibold ml-1">${avgRating}</span>
+                                    <span class="text-gray-500 text-sm ml-1">(${product.ratings.length})</span>
+                                </div>
+                            ` : `
+                                <span class="text-gray-500 text-sm">Sem avaliações</span>
+                            `}
+                        </div>
+                        
+                        <div class="text-2xl font-bold text-blue-600 mb-2">
+                            ${currency.symbol} ${parseFloat(product.price).toLocaleString()}
+                        </div>
+                        
+                        <div class="text-sm text-gray-600 hover:text-blue-600 hover:underline"
+                            onclick="event.stopPropagation(); viewUserProfile(${product.userId})">
+                            👤 ${product.userName}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function ProductView() {
+            const product = state.products.find(p => p.id === state.selectedProduct);
+            if (!product) return '<div>Produto não encontrado</div>';
+
+            // Add to recently viewed
+            addToRecentlyViewed(product.id);
+
+            const avgRating = getAverageRating(product);
+            const currency = state.currencies.find(c => c.code === product.currency);
+            const category = state.categories.find(c => c.id === parseInt(product.category));
+            const favorite = isFavorite(product.id);
+            const isOwner = state.user && state.user.id === product.userId;
+
+            return `
+                <div class="container mx-auto px-4 py-8">
+                    <button onclick="changeView('home')" class="mb-4 text-blue-600 hover:underline flex items-center gap-2">
+                        ← Voltar
+                    </button>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <!-- Photos -->
+                        <div>
+                            <div class="bg-gray-200 rounded-lg overflow-hidden mb-4">
+                                ${product.photos && product.photos.length > 0 ? `
+                                    <img src="${product.photos[0]}" alt="${product.title}" 
+                                        class="w-full aspect-square object-cover">
+                                ` : `
+                                    <div class="w-full aspect-square flex items-center justify-center text-9xl">
+                                        ${category?.icon || '📦'}
+                                    </div>
+                                `}
+                            </div>
+                            
+                            ${product.photos && product.photos.length > 1 ? `
+                                <div class="grid grid-cols-4 gap-2">
+                                    ${product.photos.slice(1, 5).map(photo => `
+                                        <img src="${photo}" class="w-full aspect-square object-cover rounded cursor-pointer hover:opacity-75">
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <!-- Details -->
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-800 mb-4">${product.title}</h1>
+                            
+                            <div class="text-4xl font-bold text-blue-600 mb-4">
+                                ${currency.symbol} ${parseFloat(product.price).toLocaleString()}
+                            </div>
+
+                            <div class="flex items-center gap-4 mb-6">
+                                ${avgRating > 0 ? `
+                                    <div class="flex items-center">
+                                        <span class="text-yellow-500 text-2xl">⭐</span>
+                                        <span class="font-bold text-xl ml-1">${avgRating}</span>
+                                        <span class="text-gray-600 ml-1">(${product.ratings.length} avaliações)</span>
+                                    </div>
+                                ` : `
+                                    <span class="text-gray-500">Sem avaliações ainda</span>
+                                `}
+                            </div>
+
+                            <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <span class="text-gray-600">Categoria:</span>
+                                        <div class="font-semibold">${category.icon} ${category.name}</div>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-600">Condição:</span>
+                                        <div class="font-semibold">${product.condition === 'new' ? 'Novo' : 'Usado'}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-6">
+                                <h3 class="font-bold text-lg mb-2">Descrição</h3>
+                                <p class="text-gray-700 whitespace-pre-line">${product.description}</p>
+                            </div>
+
+                            <div class="bg-blue-50 rounded-lg p-4 mb-6">
+                                <div class="font-semibold text-gray-800 mb-2">Vendedor</div>
+                                <div class="text-lg cursor-pointer hover:text-blue-600 hover:underline"
+                                    onclick="viewUserProfile(${product.userId})">
+                                    👤 ${product.userName}
+                                </div>
+                            </div>
+
+                            ${!isOwner ? `
+                                <button onclick="contactWhatsApp('${product.userPhone}', '${product.title}')" 
+                                    class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-lg flex items-center justify-center gap-2 text-lg transition mb-3">
+                                    <span class="text-2xl">📱</span>
+                                    Contactar via WhatsApp
+                                </button>
+
+                                ${state.user ? `
+                                    <button onclick="toggleFavorite(${product.id})" 
+                                        class="w-full ${favorite ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-200 hover:bg-gray-300'} text-white font-bold py-3 rounded-lg transition mb-3">
+                                        ${favorite ? '❤️ Remover dos Favoritos' : '🤍 Adicionar aos Favoritos'}
+                                    </button>
+
+                                    <button onclick="showRatingForm(${product.id})" 
+                                        class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 rounded-lg transition">
+                                        ⭐ Avaliar Produto
+                                    </button>
+                                ` : ''}
+                            ` : `
+                                <div class="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4 mb-3">
+                                    <div class="font-semibold text-yellow-800 mb-2">📌 Este é seu produto</div>
+                                    <p class="text-yellow-700 text-sm">Você não pode contactar ou avaliar seu próprio produto.</p>
+                                </div>
+
+                                <button onclick="deleteProduct(${product.id})" 
+                                    class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition">
+                                    🗑️ Excluir Produto
+                                </button>
+                            `}
+                        </div>
+                    </div>
+
+                    <!-- Ratings Section -->
+                    ${product.ratings && product.ratings.length > 0 ? `
+                        <div class="mt-12">
+                            <h2 class="text-2xl font-bold text-gray-800 mb-6">Avaliações</h2>
+                            <div class="space-y-4">
+                                ${product.ratings.map(rating => `
+                                    <div class="bg-white rounded-lg shadow p-6">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <div class="font-semibold text-gray-800">${rating.userName}</div>
+                                            <div class="flex items-center">
+                                                ${Array(5).fill(0).map((_, i) => `
+                                                    <span class="text-xl ${i < rating.rating ? 'text-yellow-500' : 'text-gray-300'}">⭐</span>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                        <p class="text-gray-700">${rating.comment}</p>
+                                        <div class="text-sm text-gray-500 mt-2">
+                                            ${new Date(rating.date).toLocaleDateString('pt-BR')}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Rating Modal -->
+                <div id="rating-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div class="bg-white rounded-lg p-8 max-w-md w-full">
+                        <h3 class="text-2xl font-bold mb-4">Avaliar Produto</h3>
+                        <form onsubmit="event.preventDefault(); handleRating();">
+                            <div class="mb-4">
+                                <label class="block text-gray-700 font-semibold mb-2">Sua Avaliação</label>
+                                <div class="star-rating" id="star-rating">
+                                    ${Array(5).fill(0).map((_, i) => `
+                                        <span class="star" data-rating="${i + 1}">⭐</span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-gray-700 font-semibold mb-2">Comentário</label>
+                                <textarea id="rating-comment" required rows="4"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                            </div>
+                            <div class="flex gap-3">
+                                <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg">
+                                    Enviar
+                                </button>
+                                <button type="button" onclick="hideRatingForm()" 
+                                    class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 rounded-lg">
+                                    Cancelar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function SellView() {
+            return `
+                <div class="container mx-auto px-4 py-8">
+                    <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-xl p-8">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6">Vender Produto</h2>
+                        
+                        <form onsubmit="event.preventDefault(); handleSellProduct();" class="space-y-6">
+                            <!-- Photos -->
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Fotos do Produto</label>
+                                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                                    <input type="file" id="product-photos" multiple accept="image/*" 
+                                        onchange="handlePhotoUpload(event)" class="hidden">
+                                    <label for="product-photos" class="cursor-pointer">
+                                        <div class="text-4xl mb-2">📷</div>
+                                        <div class="text-gray-600">Clique para adicionar fotos (máximo 6)</div>
+                                    </label>
+                                </div>
+                                
+                                ${state.newProduct.photos.length > 0 ? `
+                                    <div class="mt-4 grid grid-cols-3 gap-4">
+                                        ${state.newProduct.photos.map((photo, index) => `
+                                            <div class="photo-preview">
+                                                <img src="${photo}" class="w-full h-32 object-cover rounded">
+                                                <div class="remove-photo" onclick="removePhoto(${index})">×</div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                ` : ''}
+                            </div>
+
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Título do Produto</label>
+                                <input type="text" id="product-title" required
+                                    value="${state.newProduct.title}"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            </div>
+
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">Descrição</label>
+                                <textarea id="product-description" required rows="5"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">${state.newProduct.description}</textarea>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-gray-700 font-semibold mb-2">Preço</label>
+                                    <input type="number" id="product-price" required min="0" step="0.01"
+                                        value="${state.newProduct.price}"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+
+                                <div>
+                                    <label class="block text-gray-700 font-semibold mb-2">Moeda</label>
+                                    <select id="product-currency" 
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        ${state.currencies.map(currency => `
+                                            <option value="${currency.code}" ${state.newProduct.currency === currency.code ? 'selected' : ''}>
+                                                ${currency.symbol} ${currency.name}
+                                            </option>
+                                        `).join('')}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-gray-700 font-semibold mb-2">Categoria</label>
+                                    <select id="product-category" required
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="">Selecione uma categoria</option>
+                                        ${state.categories.map(cat => `
+                                            <option value="${cat.id}" ${state.newProduct.category == cat.id ? 'selected' : ''}>
+                                                ${cat.icon} ${cat.name}
+                                            </option>
+                                        `).join('')}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-gray-700 font-semibold mb-2">Condição</label>
+                                    <select id="product-condition"
+                                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="new" ${state.newProduct.condition === 'new' ? 'selected' : ''}>Novo</option>
+                                        <option value="used" ${state.newProduct.condition === 'used' ? 'selected' : ''}>Usado</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button type="submit" 
+                                class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-lg text-lg transition">
+                                📢 Publicar Anúncio
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function DashboardView() {
+            const myProducts = state.products.filter(p => p.userId === state.user.id);
+
+            return `
+                <div class="container mx-auto px-4 py-8">
+                    <div class="max-w-6xl mx-auto">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-8">Meu Painel</h2>
+
+                        <!-- User Info -->
+                        <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                            <div class="flex items-center gap-4 mb-4">
+                                <div class="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-3xl font-bold">
+                                    ${state.user.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                    <h3 class="text-2xl font-bold text-gray-800">${state.user.name}</h3>
+                                    <p class="text-gray-600">${state.user.email}</p>
+                                    <p class="text-gray-600">📱 ${state.user.phone}</p>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-3 gap-4 pt-4 border-t">
+                                <div class="text-center">
+                                    <div class="text-3xl font-bold text-blue-600">${myProducts.length}</div>
+                                    <div class="text-gray-600">Produtos</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-3xl font-bold text-green-600">
+                                        ${myProducts.reduce((acc, p) => acc + (p.ratings?.length || 0), 0)}
+                                    </div>
+                                    <div class="text-gray-600">Avaliações</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-3xl font-bold text-yellow-500">
+                                        ${myProducts.length > 0 
+                                            ? (myProducts.reduce((acc, p) => acc + parseFloat(getAverageRating(p) || 0), 0) / myProducts.length).toFixed(1)
+                                            : '0.0'}
+                                    </div>
+                                    <div class="text-gray-600">Média ⭐</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- My Products -->
+                        <div class="mb-4 flex justify-between items-center">
+                            <h3 class="text-2xl font-bold text-gray-800">Meus Produtos</h3>
+                            <button onclick="changeView('sell')" 
+                                class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition">
+                                + Novo Produto
+                            </button>
+                        </div>
+
+                        ${myProducts.length === 0 ? `
+                            <div class="bg-white rounded-lg shadow p-12 text-center">
+                                <div class="text-6xl mb-4">📦</div>
+                                <p class="text-xl text-gray-600 mb-4">Você ainda não tem produtos</p>
+                                <button onclick="changeView('sell')" 
+                                    class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition">
+                                    Criar Primeiro Anúncio
+                                </button>
+                            </div>
+                        ` : `
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                ${myProducts.map(product => ProductCard(product)).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function SettingsView() {
+            return `
+                <div class="container mx-auto px-4 py-8">
+                    <div class="max-w-3xl mx-auto">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-8">⚙️ Configurações</h2>
+
+                        <div class="bg-white rounded-lg shadow-xl p-8 space-y-6">
+                            <!-- Account Info -->
+                            <div class="border-b pb-6">
+                                <h3 class="text-xl font-bold text-gray-800 mb-4">Informações da Conta</h3>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-600">Nome:</span>
+                                        <span class="font-semibold">${state.user.name}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-600">Email:</span>
+                                        <span class="font-semibold">${state.user.email}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-600">Telefone:</span>
+                                        <span class="font-semibold">${state.user.phone}</span>
+                                    </div>
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-gray-600">Membro desde:</span>
+                                        <span class="font-semibold">${new Date(state.user.createdAt).toLocaleDateString('pt-BR')}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Notifications -->
+                            <div class="border-b pb-6">
+                                <h3 class="text-xl font-bold text-gray-800 mb-4">Notificações</h3>
+                                <div class="space-y-4">
+                                    <label class="flex items-center justify-between cursor-pointer">
+                                        <div>
+                                            <div class="font-semibold text-gray-800">Notificações Push</div>
+                                            <div class="text-sm text-gray-600">Receber notificações sobre novas mensagens</div>
+                                        </div>
+                                        <input type="checkbox" id="notifications" ${state.settings.notifications ? 'checked' : ''}
+                                            onchange="updateSetting('notifications', this.checked)"
+                                            class="w-6 h-6 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+                                    </label>
+
+                                    <label class="flex items-center justify-between cursor-pointer">
+                                        <div>
+                                            <div class="font-semibold text-gray-800">Alertas por Email</div>
+                                            <div class="text-sm text-gray-600">Receber emails sobre atividades importantes</div>
+                                        </div>
+                                        <input type="checkbox" id="emailAlerts" ${state.settings.emailAlerts ? 'checked' : ''}
+                                            onchange="updateSetting('emailAlerts', this.checked)"
+                                            class="w-6 h-6 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Privacy -->
+                            <div class="border-b pb-6">
+                                <h3 class="text-xl font-bold text-gray-800 mb-4">Privacidade</h3>
+                                <div class="space-y-4">
+                                    <label class="flex items-center justify-between cursor-pointer">
+                                        <div>
+                                            <div class="font-semibold text-gray-800">Mostrar Telefone</div>
+                                            <div class="text-sm text-gray-600">Exibir seu número nos anúncios</div>
+                                        </div>
+                                        <input type="checkbox" id="showPhone" ${state.settings.showPhone ? 'checked' : ''}
+                                            onchange="updateSetting('showPhone', this.checked)"
+                                            class="w-6 h-6 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Appearance -->
+                            <div class="border-b pb-6">
+                                <h3 class="text-xl font-bold text-gray-800 mb-4">Aparência</h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block font-semibold text-gray-800 mb-2">Tema</label>
+                                        <select id="theme" onchange="updateSetting('theme', this.value)"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                            <option value="light" ${state.settings.theme === 'light' ? 'selected' : ''}>Claro</option>
+                                            <option value="dark" ${state.settings.theme === 'dark' ? 'selected' : ''}>Escuro</option>
+                                            <option value="auto" ${state.settings.theme === 'auto' ? 'selected' : ''}>Automático</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label class="block font-semibold text-gray-800 mb-2">Idioma</label>
+                                        <select id="language" onchange="updateSetting('language', this.value)"
+                                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                            <option value="pt" ${state.settings.language === 'pt' ? 'selected' : ''}>Português</option>
+                                            <option value="en" ${state.settings.language === 'en' ? 'selected' : ''}>English</option>
+                                            <option value="es" ${state.settings.language === 'es' ? 'selected' : ''}>Español</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Data Management -->
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-800 mb-4">Dados</h3>
+                                <div class="space-y-3">
+                                    <button onclick="clearRecentlyViewed()" 
+                                        class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-3 rounded-lg transition">
+                                        🗑️ Limpar Histórico de Visualizações
+                                    </button>
+                                    <button onclick="exportData()" 
+                                        class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-semibold py-3 rounded-lg transition">
+                                        📥 Exportar Meus Dados
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button onclick="changeView('dashboard')" 
+                            class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">
+                            Voltar ao Painel
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function FavoritesView() {
+            const favoriteProducts = state.favorites
+                .map(id => state.products.find(p => p.id === id))
+                .filter(p => p !== undefined);
+
+            return `
+                <div class="container mx-auto px-4 py-8">
+                    <div class="max-w-6xl mx-auto">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-8">❤️ Meus Favoritos</h2>
+
+                        ${favoriteProducts.length === 0 ? `
+                            <div class="bg-white rounded-lg shadow p-12 text-center">
+                                <div class="text-6xl mb-4">💔</div>
+                                <p class="text-xl text-gray-600 mb-4">Você ainda não tem favoritos</p>
+                                <button onclick="changeView('home')" 
+                                    class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition">
+                                    Explorar Produtos
+                                </button>
+                            </div>
+                        ` : `
+                            <div class="mb-4">
+                                <p class="text-gray-600">${favoriteProducts.length} produto${favoriteProducts.length > 1 ? 's' : ''} favorito${favoriteProducts.length > 1 ? 's' : ''}</p>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                ${favoriteProducts.map(product => ProductCard(product)).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function UserProfileView() {
+            const user = getUserById(state.selectedUserId);
+            if (!user) return '<div class="container mx-auto px-4 py-8"><p>Usuário não encontrado</p></div>';
+
+            const userProducts = state.products.filter(p => p.userId === user.id);
+            const totalRatings = userProducts.reduce((acc, p) => acc + (p.ratings?.length || 0), 0);
+            const avgRating = userProducts.length > 0 
+                ? (userProducts.reduce((acc, p) => acc + parseFloat(getAverageRating(p) || 0), 0) / userProducts.length).toFixed(1)
+                : '0.0';
+
+            return `
+                <div class="container mx-auto px-4 py-8">
+                    <button onclick="changeView('home')" class="mb-4 text-blue-600 hover:underline flex items-center gap-2">
+                        ← Voltar
+                    </button>
+
+                    <div class="max-w-6xl mx-auto">
+                        <!-- User Info Card -->
+                        <div class="bg-white rounded-lg shadow-lg p-8 mb-8">
+                            <div class="flex items-center gap-6 mb-6">
+                                <div class="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white text-4xl font-bold">
+                                    ${user.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div class="flex-1">
+                                    <h2 class="text-3xl font-bold text-gray-800 mb-2">${user.name}</h2>
+                                    <p class="text-gray-600 mb-2">Membro desde ${new Date(user.createdAt).toLocaleDateString('pt-BR')}</p>
+                                    ${state.user && state.user.id === user.id ? `
+                                        <p class="text-sm text-gray-500">📧 ${user.email} • 📱 ${user.phone}</p>
+                                    ` : ''}
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-4 pt-6 border-t">
+                                <div class="text-center">
+                                    <div class="text-3xl font-bold text-blue-600">${userProducts.length}</div>
+                                    <div class="text-gray-600">Produtos</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-3xl font-bold text-green-600">${totalRatings}</div>
+                                    <div class="text-gray-600">Avaliações</div>
+                                </div>
+                                <div class="text-center">
+                                    <div class="text-3xl font-bold text-yellow-500">${avgRating}</div>
+                                    <div class="text-gray-600">Média ⭐</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- User Products -->
+                        <h3 class="text-2xl font-bold text-gray-800 mb-6">Produtos de ${user.name}</h3>
+                        
+                        ${userProducts.length === 0 ? `
+                            <div class="bg-white rounded-lg shadow p-12 text-center">
+                                <div class="text-6xl mb-4">📦</div>
+                                <p class="text-xl text-gray-600">Este usuário ainda não tem produtos</p>
+                            </div>
+                        ` : `
+                            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                ${userProducts.map(product => ProductCard(product)).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Event Handlers
+        function handleLogin() {
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+
+            if (login(email, password)) {
+                changeView('home');
+            }
+        }
+
+        function handleRegister() {
+            const name = document.getElementById('register-name').value;
+            const email = document.getElementById('register-email').value;
+            const phone = document.getElementById('register-phone').value;
+            const password = document.getElementById('register-password').value;
+
+            if (register(name, email, password, phone)) {
+                alert('Conta criada com sucesso!');
+                changeView('home');
+            }
+        }
+
+        function handleSellProduct() {
+            const product = {
+                title: document.getElementById('product-title').value,
+                description: document.getElementById('product-description').value,
+                price: document.getElementById('product-price').value,
+                currency: document.getElementById('product-currency').value,
+                category: document.getElementById('product-category').value,
+                condition: document.getElementById('product-condition').value,
+                photos: state.newProduct.photos
+            };
+
+            addProduct(product);
+            alert('Produto publicado com sucesso!');
+            changeView('dashboard');
+        }
+
+        function showRatingForm(productId) {
+            document.getElementById('rating-modal').classList.remove('hidden');
+            
+            // Star rating interaction
+            const stars = document.querySelectorAll('#star-rating .star');
+            let selectedRating = 0;
+
+            stars.forEach(star => {
+                star.addEventListener('click', function() {
+                    selectedRating = parseInt(this.dataset.rating);
+                    stars.forEach((s, i) => {
+                        if (i < selectedRating) {
+                            s.classList.add('active');
+                        } else {
+                            s.classList.remove('active');
+                        }
+                    });
+                });
+
+                star.addEventListener('mouseenter', function() {
+                    const rating = parseInt(this.dataset.rating);
+                    stars.forEach((s, i) => {
+                        if (i < rating) {
+                            s.style.color = '#fbbf24';
+                        } else {
+                            s.style.color = '#d1d5db';
+                        }
+                    });
+                });
+            });
+
+            document.querySelector('#star-rating').addEventListener('mouseleave', function() {
+                stars.forEach((s, i) => {
+                    if (i < selectedRating) {
+                        s.style.color = '#fbbf24';
+                    } else {
+                        s.style.color = '#d1d5db';
+                    }
+                });
+            });
+
+            window.currentRatingProduct = productId;
+            window.currentSelectedRating = () => selectedRating;
+        }
+
+        function hideRatingForm() {
+            document.getElementById('rating-modal').classList.add('hidden');
+        }
+
+        function handleRating() {
+            const rating = window.currentSelectedRating();
+            const comment = document.getElementById('rating-comment').value;
+
+            if (rating === 0) {
+                alert('Por favor, selecione uma classificação');
+                return;
+            }
+
+            addRating(window.currentRatingProduct, rating, comment);
+            hideRatingForm();
+            render();
+            alert('Avaliação enviada com sucesso!');
+        }
+
+        function filterByCategory(categoryId) {
+            state.filterCategory = state.filterCategory === categoryId ? null : categoryId;
+            render();
+        }
+
+        function clearFilter() {
+            state.filterCategory = null;
+            render();
+        }
+
+        function viewUserProfile(userId) {
+            state.selectedUserId = userId;
+            changeView('userProfile');
+        }
+
+        function getUserById(userId) {
+            const users = JSON.parse(localStorage.getItem('marketplace_users') || '[]');
+            return users.find(u => u.id === userId);
+        }
+
+        function updateSetting(key, value) {
+            const newSettings = {};
+            newSettings[key] = value;
+            updateSettings(newSettings);
+            render();
+        }
+
+        function clearRecentlyViewed() {
+            if (confirm('Tem certeza que deseja limpar o histórico de visualizações?')) {
+                state.recentlyViewed = [];
+                saveData();
+                alert('Histórico limpo com sucesso!');
+                render();
+            }
+        }
+
+        function exportData() {
+            const data = {
+                user: state.user,
+                products: state.products.filter(p => p.userId === state.user.id),
+                favorites: state.favorites,
+                recentlyViewed: state.recentlyViewed,
+                settings: state.settings
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `marketplace-data-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            alert('Dados exportados com sucesso!');
+        }
+
+        // Main Render
+        function render() {
+            const views = {
+                'home': HomeView,
+                'login': LoginView,
+                'register': RegisterView,
+                'sell': SellView,
+                'dashboard': DashboardView,
+                'product': ProductView,
+                'settings': SettingsView,
+                'favorites': FavoritesView,
+                'userProfile': UserProfileView
+            };
+
+            const view = views[state.currentView] || HomeView;
+            
+            document.getElementById('app').innerHTML = `
+                ${Header()}
+                ${view()}
+            `;
+        }
+
+        // Initialize
+        loadData();
+        render();
+    </script>
+</body>
+</html>
